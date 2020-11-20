@@ -329,6 +329,6 @@ fitter = ParameterOptimizer( prmtopInit = "example/modelInit.prmtop",
                         MDseed= "example/mdSeed.prmcrd",
                         parameters2optimizeFile = "example/params2optimize.dat")
 initialX = fitter.readX()
-fitter.goalFunction(initialX)
+# fitter.goalFunction(initialX)
 res = minimize(fitter.goalFunction, initialX, method='nelder-mead', bounds = fitter.getBounds(),
                options={'xatol': 300, 'disp': True})
