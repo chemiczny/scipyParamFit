@@ -24,7 +24,7 @@ class Parameter2Optimize:
 class ParameterOptimizer:
     def __init__(self, prmtopInit , referenceTrajectory, evaluationCriteria, 
                  referenceEnergies, sanderMinimization, sanderMD, MDseed,
-                 parameters2optimizeFile):
+                 parameters2optimizeFile, processors = 1):
         self.initPrmtop = abspath(prmtopInit)
         self.referenceTrajectory = abspath(referenceTrajectory)
         
@@ -45,12 +45,41 @@ class ParameterOptimizer:
         self.referenceMeans = self.getReferenceMeans()
         self.parameter2optimize = []
         self.readParameters2optimize(parameters2optimizeFile)
-        self.evaluationKinds = self.getKindOfEvaluationParameters()
+        self.evaluationKinds, self.evaluationParmList = self.getKindOfEvaluationParameters()
         
         self.currentPrmtop = abspath( "current.prmtop")
         copyfile( self.initPrmtop, self.currentPrmtop )
         
         self.evaluationMDtrajectory = join( self.scratchDir, "evaluationMD.nc" )
+        self.processors = processors
+        
+        self.logFile = abspath("calc.csv")
+        self.initLogFile()
+        
+    def initLogFile(self):
+        lf = open(self.logFile, 'w')
+        for optParm in self.parameter2optimize:
+            lf.write( "X: " )
+            lf.write(optParm.kind+" "+optParm.valueType+" ")
+            lf.write("-".join(optParm.atomMask)+";")
+            
+        lf.write("Mean( (E_qm - E_mm)^2 );")
+            
+        for evalParm in self.evaluationParmList:
+            lf.write( self.evaluationKinds[evalParm] + " " )
+            lf.write( evalParm+";")
+            
+        lf.write("Goal funtion")
+            
+        lf.write("\n")
+        
+        lf.close()
+        
+    def appendValue2log(self, values):
+        lf = open(self.logFile, 'a')
+        lf.write(";".join( [ str(v) for v in values ] ))
+        lf.close()
+        
         
     def cleanScratch(self):
         for f in glob( join(self.scratchDir, "*" ) ):
@@ -66,15 +95,17 @@ class ParameterOptimizer:
         evCriteriaF = open(self.evaluationCriteria, 'r')
         line = evCriteriaF.readline()
         header2kind ={}
+        headersList = []
         while line:
             lineS = line.split()
+            headersList.append(lineS[1])
             header2kind[lineS[1]] = lineS[0]
             
             line = evCriteriaF.readline()
         
         evCriteriaF.close()
         
-        return header2kind
+        return header2kind, headersList
         
     def evaluateWithCppTraj(self, trajectory ):
         referenceInputName = "evaluation.cpptraj"
@@ -263,12 +294,13 @@ WRITE_ENERGY={MMenergiesFile}
 
         mdOut = join(self.scratchDir, "amberMD.log")
         mdRest =  join(self.scratchDir, "amberMD_rest.nc")
-        system("$AMBERHOME/bin/sander -O -i " + self.sanderMinFile + " -c " + self.mdSeed + " -p " + self.currentPrmtop  + "  -o "+minimizationOut+" -r " +minimizedCoordsFile+ " -x "+minimizationTraj  )
-        system("$AMBERHOME/bin/sander -O -i " + self.sanderMDFile + " -c " + minimizedCoordsFile + " -p " + self.currentPrmtop  + "  -o "+mdOut+" -r "+mdRest+" -x "+self.evaluationMDtrajectory  )
-    
-#        system("mpirun -np 24 $AMBERHOME/bin/sander.MPI -O -i " + self.sanderMinFile + " -c " + self.mdSeed + " -p " + self.currentPrmtop  + "  -o "+minimizationOut+" -r " +minimizedCoordsFile+ " -x "+minimizationTraj  )
-#        system("mpirun -np 24 $AMBERHOME/bin/sander.MPI -O -i " + self.sanderMDFile + " -c " + minimizedCoordsFile + " -p " + self.currentPrmtop  + "  -o "+mdOut+" -r "+mdRest+" -x "+self.evaluationMDtrajectory  )
-  
+        
+        if self.processors == 1:
+            system("$AMBERHOME/bin/sander -O -i " + self.sanderMinFile + " -c " + self.mdSeed + " -p " + self.currentPrmtop  + "  -o "+minimizationOut+" -r " +minimizedCoordsFile+ " -x "+minimizationTraj  )
+            system("$AMBERHOME/bin/sander -O -i " + self.sanderMDFile + " -c " + minimizedCoordsFile + " -p " + self.currentPrmtop  + "  -o "+mdOut+" -r "+mdRest+" -x "+self.evaluationMDtrajectory  )
+        else:
+            system("mpirun -np "+str(self.processors)+" $AMBERHOME/bin/sander.MPI -O -i " + self.sanderMinFile + " -c " + self.mdSeed + " -p " + self.currentPrmtop  + "  -o "+minimizationOut+" -r " +minimizedCoordsFile+ " -x "+minimizationTraj  )
+            system("mpirun -np "+str(self.processors)+" $AMBERHOME/bin/sander.MPI -O -i " + self.sanderMDFile + " -c " + minimizedCoordsFile + " -p " + self.currentPrmtop  + "  -o "+mdOut+" -r "+mdRest+" -x "+self.evaluationMDtrajectory  ) 
     
     def evaluateMD(self):
         return self.evaluateWithCppTraj( self.evaluationMDtrajectory )
@@ -279,11 +311,11 @@ WRITE_ENERGY={MMenergiesFile}
         angleWeight = 2**2
         
         goalFuntionValue = 0
+        values2log = []
         
-#        print("Obliczanie funkcji celu: start")
-#        print("Wektor X: ", X)
         self.cleanScratch()
         self.setX(X)
+        values2log += X
         
         energiesFromParamfit = self.evaluateWithParamFit()
         
@@ -291,9 +323,8 @@ WRITE_ENERGY={MMenergiesFile}
         qmEnergies = energiesFromParamfit[:,2]
         
         meanEdiffSquare = np.mean( np.square( amberEnergies - qmEnergies ) )
-#        print("Srednia kwadratow roznic energii: ", meanEdiffSquare)
         goalFuntionValue += energyWeight*meanEdiffSquare
-#        print("Wklad do funkcji celu: ", goalFuntionValue)
+        values2log.append( meanEdiffSquare )
         
         self.runEvaluationMD()
         geometricalMeans = self.evaluateMD()
@@ -301,20 +332,18 @@ WRITE_ENERGY={MMenergiesFile}
         for evalParm in geometricalMeans:
             referenceValue = self.referenceMeans[evalParm]
             currentValue = geometricalMeans[evalParm]
+            values2log.append(currentValue)
             parmKind = self.evaluationKinds[evalParm]
             
             diffSquare = (referenceValue-currentValue)**2
-#            print("Kwadrat roznicy srednich parametru geometrycznego: ", diffSquare, evalParm)
             
             if parmKind == "distance":
                 goalFuntionValue += bondWeight*diffSquare
-#                print("Wklad do funkcji celu: ", bondWeight*diffSquare)
             elif parmKind == "angle":
                 goalFuntionValue += angleWeight*diffSquare
-#                print("Wklad do funkcji celu: ", angleWeight*diffSquare)
-                
-#        print("Wartosc funkcji celu: ", goalFuntionValue)
 
+        values2log.append(goalFuntionValue)
+        self.appendValue2log(values2log)
         return goalFuntionValue
         
 
