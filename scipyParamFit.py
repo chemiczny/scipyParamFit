@@ -12,7 +12,6 @@ from shutil import copyfile
 import pandas as pd
 import numpy as np
 from glob import glob
-from scipy.optimize import minimize
 from parmed.amber import AmberParm
 
 class Parameter2Optimize:
@@ -23,12 +22,11 @@ class Parameter2Optimize:
         self.atomMask = atomMask
 
 class ParameterOptimizer:
-    def __init__(self, prmtopInit , referenceTrajectory, referenceTrajectoryForCppTraj, evaluationCriteria, 
+    def __init__(self, prmtopInit , referenceTrajectory, evaluationCriteria, 
                  referenceEnergies, sanderMinimization, sanderMD, MDseed,
                  parameters2optimizeFile):
         self.initPrmtop = abspath(prmtopInit)
         self.referenceTrajectory = abspath(referenceTrajectory)
-        self.referenceTrajectoryCppTraj = abspath(referenceTrajectoryForCppTraj)
         
         self.evaluationCriteria = abspath(evaluationCriteria)
         self.referenceEnegiesFile = abspath(referenceEnergies)
@@ -59,7 +57,7 @@ class ParameterOptimizer:
             remove(f)
         
     def getReferenceMeans(self):
-        return self.evaluateWithCppTraj( self.referenceTrajectoryCppTraj )
+        return self.evaluateWithCppTraj( self.referenceTrajectory )
     
     def getBounds(self):
         return [ p.bounds for p in self.parameter2optimize ]
@@ -282,8 +280,8 @@ WRITE_ENERGY={MMenergiesFile}
         
         goalFuntionValue = 0
         
-        print("Obliczanie funkcji celu: start")
-        print("Wektor X: ", X)
+#        print("Obliczanie funkcji celu: start")
+#        print("Wektor X: ", X)
         self.cleanScratch()
         self.setX(X)
         
@@ -293,9 +291,9 @@ WRITE_ENERGY={MMenergiesFile}
         qmEnergies = energiesFromParamfit[:,2]
         
         meanEdiffSquare = np.mean( np.square( amberEnergies - qmEnergies ) )
-        print("Srednia kwadratow roznic energii: ", meanEdiffSquare)
+#        print("Srednia kwadratow roznic energii: ", meanEdiffSquare)
         goalFuntionValue += energyWeight*meanEdiffSquare
-        print("Wklad do funkcji celu: ", goalFuntionValue)
+#        print("Wklad do funkcji celu: ", goalFuntionValue)
         
         self.runEvaluationMD()
         geometricalMeans = self.evaluateMD()
@@ -306,29 +304,17 @@ WRITE_ENERGY={MMenergiesFile}
             parmKind = self.evaluationKinds[evalParm]
             
             diffSquare = (referenceValue-currentValue)**2
-            print("Kwadrat roznicy srednich parametru geometrycznego: ", diffSquare, evalParm)
+#            print("Kwadrat roznicy srednich parametru geometrycznego: ", diffSquare, evalParm)
             
             if parmKind == "distance":
                 goalFuntionValue += bondWeight*diffSquare
-                print("Wklad do funkcji celu: ", bondWeight*diffSquare)
+#                print("Wklad do funkcji celu: ", bondWeight*diffSquare)
             elif parmKind == "angle":
                 goalFuntionValue += angleWeight*diffSquare
-                print("Wklad do funkcji celu: ", angleWeight*diffSquare)
+#                print("Wklad do funkcji celu: ", angleWeight*diffSquare)
                 
-        print("Wartosc funkcji celu: ", goalFuntionValue)
+#        print("Wartosc funkcji celu: ", goalFuntionValue)
 
         return goalFuntionValue
         
-fitter = ParameterOptimizer( prmtopInit = "example/modelInit.prmtop", 
-                        referenceTrajectory = "example/referenceTrajectory.mdcrd", 
-                        referenceTrajectoryForCppTraj="example/referenceTrajectory.dcd",
-                        evaluationCriteria = "example/geometricCriteria.ptraj", 
-                        referenceEnergies = "example/referenceEnergies.dat",
-                        sanderMinimization= "example/sander_min.in",
-                        sanderMD= "example/sander_md.in",
-                        MDseed= "example/mdSeed.prmcrd",
-                        parameters2optimizeFile = "example/params2optimize.dat")
-initialX = fitter.readX()
-fitter.goalFunction(initialX)
-res = minimize(fitter.goalFunction, initialX, method='nelder-mead', bounds = fitter.getBounds(),
-               options={'xatol': 300, 'disp': True})
+
