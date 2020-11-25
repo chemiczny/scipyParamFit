@@ -9,4 +9,4 @@
 module load plgrid/apps/amber/18
 module add plgrid/tools/python/3.6.5
 
-python3 simplexOptimize.py &> fitting.log 
+python3 scipyParamFit.py &> fitting.log 
